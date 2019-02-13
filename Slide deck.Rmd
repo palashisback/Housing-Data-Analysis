@@ -1,0 +1,617 @@
+---
+title: "Tax Cuts And Their Effect On The U.S. Housing Market "
+author: "Palash Jain"
+date: "8/21/2018"
+output:
+  slidy_presentation: default
+  ioslides_presentation: default
+  beamer_presentation: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+options(scipen = 999)
+```
+
+
+
+```{R,cache=T,message=F,echo = F}
+#URL for the Zillow dataset
+z_url<-'http://files.zillowstatic.com/research/public/County/County_Zhvi_AllHomes.csv' 
+download.file(url=z_url, 'Zillow.csv')
+zillow_raw<-read.csv('Zillow.csv',stringsAsFactors = F)
+```
+
+
+```{R,cache=T ,message = F,echo =F,warnings = F}
+#URL for the State Tax Collection ACS dataset
+library(readxl)
+url<-'https://www2.census.gov/programs-surveys/stc/datasets/historical/state_tax_collections.zip'
+download.file(url = url,'STC.zip')
+unzip('STC.zip')
+stc<-read_xls('STC_Historical_DB (2017).xls', na = 'X')
+```
+
+```{R, cache = T ,message = F,fig.width = 14,echo=F,warnings = F}
+library(tidyr)
+library(dplyr)
+library(gridExtra)
+
+#Create a vector with all column names
+names.zillow<-names(zillow_raw) 
+
+#find indices of all columns with teh desired date format and create a vector
+Date<-names.zillow[grepl('[0-9]{4}.[0-9]{2}',names.zillow)] 
+names.id<-names.zillow[!(names.zillow %in% Date)]
+
+#transform data from the wide format to the long format for tidy data
+zillowts<-gather(data=zillow_raw,key = Date,value = value,-c(names.id))
+
+#Proper formatting of the Date variable
+zillowts$Date<-gsub('X','',zillowts$Date)
+zillowts$Date<-gsub('\\.','\\/',zillowts$Date)
+zillowts$Date<-as.Date(paste0(zillowts$Date,'/01'), '%Y/%m/%d')
+zillowts$value<-zillowts$value/1000
+
+#Calculate the average house prices for each year-month combination across all counties
+zillowts_avgvalue<-aggregate(value~Date,data = zillowts,FUN = mean)
+
+#Feature engineering
+zillowts_avgvalue$year<-format(zillowts_avgvalue$Date, '%Y')
+zillowts_avgvalue$month<-format(zillowts_avgvalue$Date,'%b')
+
+#Averaging the house prices for each year across all counties
+zillowts_avgyearly<-aggregate(value~year,data = zillowts_avgvalue,FUN = mean)
+zillowts_avgyearly$value<-zillowts_avgyearly$value
+
+#averaging the house prices for each month across all years and counties
+zillowts_avgmonthly<-aggregate(value~month,data = zillowts_avgvalue,FUN = mean)
+
+#This is for the calculating statewise house price average for 2017
+zillow_filter_1<-zillow_raw[,-c(1,2,4:7)]
+
+#Transfor data to tall formal
+zillow_gather<-gather(data = zillow_filter_1,key = Date,value = value,-State)
+
+zillow_gather$value<-zillow_gather$value/1000
+
+#Filter for only the 2017 data
+zillow_gather_2017<-zillow_gather[grepl('2017',zillow_gather$Date),]
+
+
+
+#Average the house prices for each state across all months of 2017
+zillow_state_2017<-aggregate(value~State,data = zillow_gather_2017,FUN = mean)
+
+#Feature engineering
+zillow_state_2017$df.avg<- zillow_state_2017$value - mean(zillow_state_2017$value)
+nat_avg<- c('Nat. Average',mean(zillow_state_2017$value),0)
+zillow_state_2017<-rbind(zillow_state_2017,nat_avg)
+zillow_state_2017$df.avg<-as.numeric(zillow_state_2017$df.avg)
+zillow_state_2017<-arrange(zillow_state_2017,desc(df.avg))
+
+zillow_gather$Date<-gsub('X','',zillow_gather$Date)
+zillow_gather$Date<-gsub('\\.','\\/',zillow_gather$Date)
+zillow_gather$Date<-as.Date(paste0(zillow_gather$Date,'/01'), '%Y/%m/%d')
+zillow_gather$year<-format(zillow_gather$Date,'%Y')
+zillow_dc<-zillow_gather[zillow_gather$State=='DC',]
+zillow_dc<-aggregate(value~year,data = zillow_dc,FUN = mean)
+zillow_hi<-zillow_gather[zillow_gather$State=='HI',]
+zillow_hi<-aggregate(value~year,data = zillow_hi,FUN = mean)
+zillow_ma<-zillow_gather[zillow_gather$State=='MA',]
+zillow_ma<-aggregate(value~year,data = zillow_ma,FUN = mean)
+zillow_ks<-zillow_gather[zillow_gather$State=='KS',]
+zillow_ks<-aggregate(value~year,data = zillow_ks,FUN = mean)
+zillow_ok<-zillow_gather[zillow_gather$State=='OK',]
+zillow_ok<-aggregate(value~year,data = zillow_ok,FUN = mean)
+zillow_ms<-zillow_gather[zillow_gather$State=='MS',]
+zillow_ms<-aggregate(value~year,data = zillow_ms,FUN = mean)
+
+
+
+```
+
+```{R, cache=T,echo=F,message = F,warnings =F}
+library(ggplot2)
+zillow_sales<-read.csv('Sale_Counts_Seas_Adj_State.csv',stringsAsFactors = F)
+
+#Getting rid of unnecessary columns
+zillow_sales<-zillow_sales[,-c(1,3)]
+
+#Properly formatting the date column
+times<-names(zillow_sales[,-1])
+zillow_sales_tall<-gather(zillow_sales,key = times,value=value,-RegionName)
+zillow_sales_tall$times<-gsub('X','',zillow_sales_tall$times)
+zillow_sales_tall$times<-gsub('\\.','\\/',zillow_sales_tall$times)
+zillow_sales_tall$times<-as.Date(paste0(zillow_sales_tall$times,'/01'),'%Y/%m/%d')
+
+#Creating Year Column
+zillow_sales_tall$year<-format(zillow_sales_tall$times,'%Y')
+
+#Filtering data for the years 2009 & 2017
+zillow_sales_tall<-zillow_sales_tall[zillow_sales_tall$year == 2009 | zillow_sales_tall$year == 2017,]
+zillow_sales_2009<-zillow_sales_tall[zillow_sales_tall$year == 2009,]
+zillow_sales_2017<-zillow_sales_tall[zillow_sales_tall$year == 2017,]
+
+#Averaging the value over the 12 months for both 2009 and 2017
+zillow_sales_2009<-group_by(zillow_sales_2009,RegionName)
+sum_2009<-summarise(zillow_sales_2009,mean_sales = mean(value))
+sum_2009$RegionName<-tolower(sum_2009$RegionName)
+zillow_sales_2017<-group_by(zillow_sales_2017,RegionName)
+sum_2017<-summarise(zillow_sales_2017,mean_sales = mean(value))
+sum_2017$RegionName<-tolower(sum_2017$RegionName)
+
+#downloading and setting up the United States Map data
+states_map<-map_data('state')
+states <- data.frame(state.center, state.abb)
+states <- states[!(states$state.abb %in% c("AK", "HI")),]
+
+```
+
+```{r,cache=T,echo=FALSE,message = F,warnings=F}
+library(dplyr)
+library(maps)
+library(ggplot2)
+#Loading the CSV
+
+acs_demo<-read.csv('ACS_16_5YR_DP05 (2)/ACS_16_5YR_DP05_with_ann.csv',stringsAsFactors = F,na.strings = c('*****','(X)'))
+
+#Getting rid of all columns which have more than 50% of the values missing
+acs_demo<-acs_demo[,!(colMeans(is.na(acs_demo) > 0.5))]
+
+#Filtering the data to contain only the columns which contain the percentage data
+names(acs_demo)<-acs_demo[1,]
+names<-names(acs_demo)
+acs_demo<-acs_demo[-1,]
+state<-names(acs_demo)[3]
+acs_percentages<-acs_demo[,grepl('Percent;',names)]
+acs_percentages<-cbind(State=acs_demo$Geography,acs_percentages)
+acs_percentages[,2:83]<-lapply(2:83,function(x) as.numeric(acs_percentages[[x]]))
+
+#Filtering the data for the working population i.e. between 20-65 years old
+acs_working<-acs_percentages[,c(1,9:14)]
+acs_working$Percent_Working_Population<-rowSums(acs_working[,2:7])
+acs_working<-arrange(acs_working,desc(Percent_Working_Population))
+acs_working$State<-tolower(acs_working$State)
+
+#Filtering the data to contain only the racial information
+acs_race<-acs_percentages[,c(1,28:34,39,47,65,66)]
+acs_race<-acs_race[,c(1,4,6:10,12)]
+names(acs_race)<-c('State','Two or more','White','African American or Black','Native American/Alaskan','Asian','Pacific Islander','Hispanic')
+
+#Downloading and setting up the United States Map data
+states_map<-map_data('state')
+states <- data.frame(state.center, state.abb)
+states <- states[!(states$state.abb %in% c("AK", "HI")),] # they aren't part of states_map
+```
+
+```{R,cache =T, message =F,echo=F,warnings = F}
+library(tidyr)
+
+#cleaning the numeric variables
+stc<-data.frame(gsub(',','',as.matrix(stc)))
+
+#Getting rid of unncecessary rows
+stc<-stc[-1,]
+
+#Converting to correct datatype
+stc[,5:36]<-as.numeric(as.matrix(stc[,5:36]))
+stc1<-stc
+stc1$Year<-as.numeric(as.character(stc$Year))
+stc1$T01<-stc$T01/1000000
+stc1$T41<-stc$T41/1000000
+stc1$C129<-stc$C129/1000000
+stc1$C105<-stc1$C105/1000000
+
+#Filtering the dataset to only include data post 1996
+stc_post_1996<-stc1[stc1$Year >= 1980,]
+
+#Filtering only the data for the entire USA
+stc_US_all<- stc_post_1996[stc_post_1996$Name == 'US STATE GOVTS',]
+
+#Aggregating property tax and total tax data for each year
+ptc_US_yearly <- aggregate(T41~Year,data = stc_US_all,FUN = mean)
+stc_US_yearly<- aggregate(T01~Year,data = stc_US_all,FUN = mean)
+qtc_US_yearly<- aggregate(C129~Year,data = stc_US_all,FUN = mean)
+rtc_US_yearly<- aggregate(C105~Year,data = stc_US_all,FUN = mean)
+
+#Taking only the state, year and total tax collected data
+stc_post1996_filtered<-stc_post_1996[,c(1,3,5)]
+
+#transform tall data to wide for easier plotting
+stc2<-spread(stc_post1996_filtered,Name,C105)
+
+#Calculating  National Average for tax collected each year
+stc2$Nat.avg<-rowMeans(stc2[,-c(1,45)])
+
+#Converting all tax collections into a lograthmic scale to reduce data spread
+stc3<-cbind(Year=stc2$Year,data.frame(log(as.matrix(stc2[,2:53]))))
+```
+
+
+## <font size="5"> Average Housing Prices From 1996 Through December 2017 </font>
+<font size = '4'>U.S. Housing prices have steadily increased over the last 20 + years.  After the housing crisis shook the real estate markets, the housing recovery took a decade to recoup value to their April 2007 peak.  Since September 2017, U.S. housing has been setting fresh highs monthly.</font>
+```{R,cache = T,message = F,echo =F,fig.align = 'center',warnings =F,fig.height = 8,fig.width = 10}
+p<- ggplot(zillowts_avgvalue,aes(x=Date,y=value))+
+      geom_line() +
+      geom_point(aes(x = as.Date('2007/04/01','%Y/%m/%d'),y=166.970))+
+      geom_text(aes(x = as.Date('2007/04/01','%Y/%m/%d'),y=170,label = 'April 2007 : $166,970')) +
+      xlab('')+
+      ylab('Average House Cost (in Thousands)')+
+      theme_classic()+
+      theme(panel.border=element_blank())+ 
+      theme(panel.grid=element_blank()) + 
+      theme(axis.line  = element_blank())+
+      theme(axis.ticks = element_blank()) +
+      theme(axis.text = element_text(size = 14))
+
+suppressWarnings(p)
+```
+
+<div style="text-align: right"> Source: Zillow ZHVI allhomes dataset  
+Years : 1996-2017   </div>
+
+
+
+## <font size = 5>Average Cost Of U.S. Housing In Top States & Lowest States </font>
+<font size=4>Average U.S. housing costs as compared to the average housing costs in the top 3 and bottom 3 markets.  Note that D.C. is an urban expanse and does not have as large a population as compared to all states.</font>
+
+```{R,cache = T,message = F,echo =F,fig.align = 'center',fig.height = 8,fig.width = 10}
+col<-c('red','maroon','pink','lightblue','purple','blue','grey')
+legends<-c('DC','HI','MA','KS','MS','OK','AVG')
+plot(zillowts_avgyearly,type = 'l',ylab = 'Average House Cost (in Thousands)',xaxt='n',xlab='',ylim = c(50,570),bty ='n',yaxt ='n')
+axis(side=2,las = 2,tick=F)
+axis(side = 1,tick = F)
+#rect(par("usr")[1],par("usr")[3],par("usr")[2],par("usr")[4],col = "lightgray"==)
+lines(value~year,data = zillowts_avgyearly,lwd=2)
+lines(value~year,data = zillow_dc,col = 'red',lwd=2)
+lines(value~year,data = zillow_hi,col='maroon',lwd=2)
+lines(value~year,data = zillow_ma,col='pink',lwd=2)
+lines(value~year,data=zillow_ks,col='lightblue',lwd=2)
+lines(value~year,data = zillow_ms,col='purple',lwd=2)
+lines(value~year,data = zillow_ok,col='blue',lwd=2)
+mtext('DC',side = 4,at = max(zillow_dc$value),las=1,col = 'red')
+mtext('HI',side = 4,at = max(zillow_hi$value),las=1,col = 'maroon')
+mtext('MA',side = 4,at = max(zillow_ma$value),las=1,col = 'pink')
+mtext('KS',side = 4,at = max(zillow_ks$value) - 30,las=1,col = 'lightblue')
+mtext('MS',side = 4,at = max(zillow_ms$value),las=1,col = 'purple')
+mtext('OK',side = 4,at = max(zillow_ok$value),las=1,col = 'blue')
+mtext('Avg',side = 4,at = max(zillowts_avgyearly$value),las=1,col = 'black')
+
+#legend('topleft',legend = legends,col = col,lty = 1,cex = 0.7)
+
+```
+<div style="text-align: right"> Source: Zillow ZHVI allhomes dataset  
+Years : 1996-2017   </div>
+
+## U.S. Housing Market Over 5 Year Intervals 
+The housing market has gone through many changes over the last 20 years. The best way to view the effect on home buyers would be to view in 5 year intervals.
+
+```{R, cache = T, fig.align = 'center',message =F,echo=F,fig.height =12,fig.width = 10,warnings = F}
+library(dplyr)
+library(ggplot2)
+library(ggthemes)
+z<-function(x,y){
+  years <- c(x,y)
+  zillow_1<-zillowts[,c(3,8,9)]
+  zillow_1$year<-format(zillow_1$Date,'%Y')
+  zillow_1<-zillow_1[zillow_1$year %in% years,]
+  zillow_1<-zillow_1[!(is.na(zillow_1$value)),]
+  zillow_1<-zillow_1[!(zillow_1$State == 'ND'),]
+  zillow_2<-group_by(zillow_1,State,year)
+  zillow_2$year<-as.factor(zillow_2$year)
+  zillow_2<-summarise(zillow_2,meanvalue = mean(value))
+  zillow_x <- zillow_2[zillow_2$year==x,]
+  m<- mean(zillow_x$meanvalue)
+  r<- list(State=as.character('avg'),year=as.character(x),meanvalue=m)
+  zillow_2<-rbind(zillow_2,r)
+  return(zillow_2)
+}
+
+a<-z(1997,2002)
+b<-z(2002,2007)
+c<-z(2007,2012)
+d<-z(2012,2017)
+
+y<-function(x){
+  mean<-x[101,]$meanvalue
+  p<-ggplot()+
+      geom_col(aes(y = meanvalue,x = State,fill = year,color = year,alpha = year),data =x[-101,] ,
+                     position = 'identity') +
+      scale_colour_manual(values=c("red","lightblue4")) +
+      ylab('Average Home Value (in Thousands)') +
+      xlab('') +
+      scale_fill_manual(values=c("pink","lightblue")) +
+      scale_alpha_manual(values=c(.8,.3))+
+      theme_base()+
+      theme(axis.text.x = element_text(size = 7),
+            axis.text.y = element_text(size = 5),
+            axis.title.x = element_text(size = 7)) +
+      theme(panel.grid=element_blank())+
+      theme(panel.border=element_blank()) +
+      theme(panel.background = element_blank())+
+      theme(axis.line = element_blank(),axis.ticks = element_blank()) +
+      theme(legend.title = element_blank())+
+      geom_hline(linetype = 'dashed',yintercept = mean)+
+      coord_flip()+
+      annotate('text',x = 'WY',y = max(x$meanvalue)-75,label = paste0('National Avg in ',x[101,]$year,' : $',prettyNum(round(mean*1000,0),big.mark = ',')),size = 2.08)
+    
+      
+    
+  return(p)
+}
+
+p1<-y(a)
+p2<-y(b)
+p3<-y(c)
+p4<-y(d)
+grid.arrange(p1,p2,p3,p4,nrow = 2)
+
+```
+
+<div style="text-align: right"> Source: Zillow ZHVI allhomes dataset  
+Years : 1997-2017   </div>
+
+## Average Housing Prices In 2017
+Average housing prices in each state and D.C. in 2017 as compared to the national average.  Note that D.C. is an urban area and does not have the population or size as compared to the remaining states.
+
+```{R,fig.height = 7,cache = T,message =F,echo = F,fig.align = 'center',fig.height = 12,fig.width = 10}
+library(ggplot2)
+library(ggthemes)
+library(dplyr)
+col <- colorRampPalette(c('blue','red'))
+zillow_state_2017$State<-with(zillow_state_2017,reorder(State,df.avg))
+zillow_state_2017$value <- as.numeric(zillow_state_2017$value)
+m <- zillow_state_2017[zillow_state_2017$df.avg == 0,]$value
+zillow_state_2017$State <- factor(zillow_state_2017$State,levels = rev(levels(zillow_state_2017$State)))
+p <- ggplot(data = zillow_state_2017,aes(y = df.avg,x = State,fill = df.avg)) +
+  geom_col() +
+  scale_fill_gradient(high = 'navyblue',low = 'pink') +
+  coord_flip() +
+  labs(fill = 'Difference from National Average') +
+  xlab('')+
+  ylab('Difference from National Average (in Thousands)') +
+  theme(panel.grid=element_blank())+
+  theme(panel.border=element_blank()) +
+  theme(panel.background = element_blank())+
+  theme(axis.line = element_blank(),axis.ticks = element_blank()) +
+  theme(legend.title = element_blank()) +
+  annotate('text',x='Nat. Average',y = 80,
+            label = paste0('=====> National Average : $',
+                           prettyNum(round(m*1000,0),
+                                     big.mark = ',')),
+            size = 4)
+p
+
+#legend('topright',legend = c('Higher than National Average',
+                             #'Lower than National Average'),
+       #fill = c('orange','cyan'))
+
+```
+
+<div style="text-align: right"> Source: Zillow ZHVI allhomes dataset  
+Years : 2017   </div>
+
+
+
+## Percent Of Working Population
+The percent of the population that is currently working and is between the ages of 20-65 (as defined by the census- ACS).
+
+```{r,cache=T,fig.width=10,fig.height=6, echo =F,message = F,fig.align = 'center',warnings = F}
+library(mapproj)
+library(ggplot2)
+p1 <- ggplot()
+# borders
+p1 <- suppressWarnings(p1 + geom_map(data=states_map, map=states_map,
+                    aes(x=long, y=lat, map_id=region),
+                    color="white", size=0.15))
+p1 <- p1 + geom_map(data=acs_working, map=states_map,
+                    aes(fill=Percent_Working_Population, map_id=State),
+                    color="white", size=0.15)
+p1 <- p1 + geom_text(data=states, 
+                     aes(x=x, y=y, label=state.abb, group=NULL), size=2)
+p1 <- p1 + scale_fill_gradient(high = "green", low = "red") 
+
+p1 <- p1 + labs(x=NULL, y=NULL,fill = 'Percent Working Population')
+p1 <- p1 + theme_bw()
+p1 <- p1 + theme(panel.grid=element_blank())
+p1 <- p1 + theme(panel.border=element_blank())
+p1 <- p1 + theme(axis.ticks=element_blank())
+p1 <- p1 + theme(axis.text=element_blank())
+p1
+
+
+
+
+```
+
+<div style="text-align: right"> Source: ACS Demographics Dataset  
+Years : 2016   </div>
+
+## Average Total Taxes Collected By States
+The income taxes collected by state governments averaged across all states as compared to the average corporate net income taxes and the average property taxes. Even with significant tax cuts in 1981 and 1986 by President Reagan, 1997 by President Clinton, and 2001 by President George W. Bush, wages have increased leading to increased revenue by states. Property taxes appear to be significantly smaller in comparison over the same period.
+```{R,cache=T,echo =F, message =F,fig.align = 'center',fig.height = 8,fig.width = 10}
+library(tidyr)
+
+dt<-merge(stc_US_yearly,ptc_US_yearly)
+dt<-merge(dt,qtc_US_yearly)
+dt1<- gather(dt,key=Tax,value = value,-Year)
+dt1$Tax <- with(dt1, reorder(Tax,value))
+dt1$Tax <- factor(dt1$Tax,levels = rev(levels(dt1$Tax)))
+ggplot(data = dt1,aes(x = Year,y = value))+
+  geom_area(aes(fill = factor(Tax,labels = c('Total Income Tax','Corp Income Tax','Property Tax'))),position = 'identity',alpha = 0.3) +
+  theme(axis.text.x = element_text(size = 7),
+            axis.text.y = element_text(size = 5),
+            axis.title.x = element_text(size = 7)) +
+  theme(panel.grid=element_blank())+
+  theme(panel.border=element_blank()) +
+  theme(panel.background = element_blank())+
+  theme(axis.line = element_blank(),axis.ticks = element_blank()) +
+  theme(legend.title = element_blank()) +
+  xlab('') +
+  ylab('Taxes collected (in millions)')+
+  geom_vline(xintercept = c(2001,2008),linetype = 'dashed')+
+  annotate('text',x=1996,y = 350,label = 'Economic Growth and \n Tax Relief Reconciliation Act 2001 \n & the Dot-Com bubble',size =3) +
+  annotate('text',x=2005,y = 350,label = 'Global \n Financial Crisis',size = 3)+
+  theme(axis.text.y = element_text(size = 10))
+
+```
+
+<div style="text-align: right"> Source: ACS Tax Collection Dataset  
+Years : 1980-2017   </div>
+
+
+
+
+## <font size =5>The Average Effect Of Tax Collections On Housing Prices</font>
+The impact of taxes on housing prices suggests that there is a linear correlation between the two in periods of  economic stability, (1996-2001,2003-2007, and 2011-2017). However, in times of economic turmoil (2001-2002 and 2007-2008), this correlation is lost.
+
+```{R,cache=T,echo = F,message =F,fig.align = 'center',fig.height = 8,fig.width = 10}
+zillowts_avgyearly<-zillowts_avgyearly[-23,]
+tax_house_yearly<-merge(rtc_US_yearly,zillowts_avgyearly,by.x = 'Year',by.y = 'year')
+ggplot(data = tax_house_yearly,aes(x=C105,y=value))+
+  geom_point()+
+  geom_smooth(method = 'lm',formula = y~x)+
+  theme_classic()+
+  xlab('Total Taxes Collected (in millions)')+
+  ylab('Average Housing Prices (in thousands)')+ 
+  theme(axis.ticks=element_blank(),axis.line = element_blank())+
+  coord_cartesian(xlim = c(400,1000))
+  
+
+
+```
+ <div style="text-align: right"> Source: ACS Tax Collection and Zillow ZHVI all homes datasets  
+Years : 1996-2017   </div>
+
+
+
+## Home Sales Per Capita
+Do tax cuts affect the number of homes sold across the U.S.?  In the period between 2009 and 2017, the Bush tax cuts were still in effect and some of the tax burden was relieved from the wealthy, also capital gains taxes were reduced. These cuts were continued through the Obama administration years up through December 2017. 
+```{R,fig.height = 8,fig.width = 10.5,cache = T,echo = F, message =F,fig.align = 'center',warnings = F}
+library(ggplot2)
+library(mapproj)
+library(readxl)
+library(gridExtra)
+sd<-list('south dakota',NA)
+sum_2009<-rbind(sum_2009,sd)
+sum_2009[sum_2009$RegionName == 'district of columbia',]$mean_sales <- 40008
+sum_2017<-rbind(sum_2017,sd)
+p1 <- ggplot()
+# borders
+p1 <- suppressWarnings(p1 + geom_map(data=states_map, map=states_map,
+                    aes(x=long, y=lat, map_id=region),
+                    color="white", size=0.15))
+p1 <- p1 + geom_map(data=sum_2009, map=states_map,
+                    aes(fill=mean_sales, map_id=RegionName),
+                    color="white", size=0.15)
+p1 <- p1 + geom_text(data=states, 
+                     aes(x=x, y=y, label=state.abb, group=NULL), size=2)
+p1 <- p1 + scale_fill_gradient(high = "blue", low = "pink",na.value = 'grey')
+
+p1 <- p1 + labs(x=NULL, y=NULL)
+p1 <- p1 + theme_bw()
+p1 <- p1 + theme(panel.grid=element_blank())
+p1 <- p1 + theme(panel.border=element_blank(),panel.background = element_blank())
+p1 <- p1 + theme(axis.ticks=element_blank())
+p1 <- p1 + theme(axis.text=element_blank()) +
+  labs(fill = 'Home Sales')
+
+
+p2 <- ggplot()
+p2 <- suppressWarnings(p2 + geom_map(data=states_map, map=states_map,
+                    aes(x=long, y=lat, map_id=region),
+                    color="white", size=0.15))
+p2 <- p2 + geom_map(data=sum_2017, map=states_map,
+                    aes(fill=mean_sales, map_id=RegionName),
+                    color="white", size=0.15)
+p2 <- p2 + geom_text(data=states, 
+                     aes(x=x, y=y, label=state.abb, group=NULL), size=2)
+p2<-p2+scale_fill_continuous(high = "blue", low = "pink",na.value = 'grey')
+p2 <- p2 + labs(x=NULL, y=NULL)
+p2 <- p2 + theme_bw()
+p2 <- p2 + theme(panel.grid=element_blank())
+p2 <- p2 + theme(panel.border=element_blank(),panel.background = element_blank())
+p2 <- p2 + theme(axis.ticks=element_blank())
+p2 <- p2 + theme(axis.text=element_blank()) +
+  labs(fill = 'Home Sales')
+  
+
+
+
+dt<-read_xls('rank01 (1).xls')
+dt<- dt[-c(1:10,62:75),-3]
+names(dt)<-c('State','pop')
+dt$State<-tolower(dt$State)
+dt$pop<-as.numeric(dt$pop)
+dt$year<-2009
+
+  
+dt1<-read.csv('2017.csv')
+dt1<-dt1[-c(1:5,57),c(5,15)]
+names(dt1)<-c('State','pop')
+dt1$State<-tolower(dt1$State)
+dt1$pop<-as.numeric(dt1$pop)
+dt1$year<-2017
+
+dt2<- rbind(dt,dt1)
+dt2$pop<- dt2$pop/1000000
+dt3<-read.csv('states.csv')
+dt3$State<-tolower(dt3$State)
+dt2<-merge(dt2,dt3)
+p3<-ggplot(data=dt2,aes(x=Abbreviation,y=pop,fill = factor(year),
+                        color = factor(year),alpha = factor(year) ))+
+  geom_col(position = 'identity') +
+  scale_fill_manual(values=c("pink","lightblue")) +
+  scale_alpha_manual(values=c(.8,.3)) +
+  theme_classic() +
+  theme(axis.text.x = element_text(size = 7),
+        axis.ticks = element_blank(),
+        axis.line = element_blank(),
+        legend.title = element_blank()) +
+  ylab('Population (in millions)') +
+  xlab('')
+
+      
+
+
+
+grid.arrange(arrangeGrob(p1,p2,ncol=2,nrow=1),arrangeGrob(p3,ncol=1,nrow=1))
+
+
+```
+<div style="text-align: right"> Source: Zillow ZHVI home sales & the Census datasets  
+Years : 2009 & 2017   </div>
+
+
+## <font size = 5>Heatmap Representing Population Demographics </font>
+A scaled heatmap  that represents racial dynamics per state as of 2016.  
+```{R,fig.height = 12,fig.width = 10,cache = T, echo =F,message = F,fig.align = 'center',warnings = F}
+library(ggplot2)
+library(reshape2)
+library(ggthemes)
+acs_race<-acs_race[,c(1,3:8,2)]
+race<-c('White','Black','Native','Asian','P.Islander','Hispanic','Two or more')
+names(acs_race)[2:8]<-race
+#acs_race[,c(2:8)]<-scale(as.matrix(acs_race[,c(2:8)]))
+acs_race_melted<-melt(acs_race)
+p<-ggplot(data = acs_race_melted,aes(x=variable,y=State))+
+  geom_tile(aes(fill=value), colour = 'white')+
+  scale_fill_gradient(low = 'pink',high = 'blue')+
+  #scale_fill_continuous(high = "#132B43", low = "#56B1F7")+
+  xlab('Race')+
+  ylab('') +
+  theme_classic() +
+  theme(legend.title = element_blank(),axis.ticks = element_blank(),
+        axis.line = element_blank())
+
+  
+p
+
+
+
+```
+<div style="text-align: right"> Source: ACS Demographics Dataset  
+Years : 2016   </div>
+
+
